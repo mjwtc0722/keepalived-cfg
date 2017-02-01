@@ -482,7 +482,7 @@ function List {
 function Help {
     basename=$(basename $0)
     echo "Usage:"
-    echo "  ${basename} --init"
+    echo "  ${basename} --init --rid router_id"
     echo "  ${basename} --add-vrrp --name vrrp_name --vid virtual_router_id --vip virtual_ipaddress [options]"
     echo "  ${basename} --edit-vrrp --name vrrp_name -P|--priority priority"
     echo "  ${basename} --delete-vrrp --name vrrp_name"
