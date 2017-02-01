@@ -154,7 +154,28 @@ Options:
     keepalived-cfg --init --rid demo
 2、添加vrrp_instance，指定名称为demo，声明为主服务器，使用网卡eth0，virtual_router_id为10，优先级100，认证密码demo，虚拟ip为10.0.0.1和10.0.0.2
     keepalived-cfg --add-vrrp --name demo --state MASTER -I eth0 --vid 10 --priority 100 --password demo --vip 10.0.0.1,10.0.0.2
-3、添加virtual_server，TCP协议10.0.0.1:80，加权轮询调度，DR模式，超时时间120秒
+3、添加virtual_server，TCP协议，80端口，加权轮询调度，DR模式，超时时间120秒
     keepalived-cfg -A -t 10.0.0.1:80 -M 255.0.0.0 -s wrr -g -p 120
+4、添加real_server,权重为3，使用默认TCP_CHECK检查
+    keepalived-cfg -a -t 10.0.0.1:80 -r 10.0.100.1 -w 3
+5、添加real_server,权重为5，使用自定义模版，地址为http://www.example.com/demo
+    keepalived-cfg -a -t 10.0.0.1:80 -r 10.0.100.2 -w 5 -c "http://www.example.com/demo"
+    #模版内容：
+    #[root@localhost ~]# curl -s http://www.example.com/demo
+    #HTTP_GET {
+    #    url {
+    #        path /check.html
+    #        digest cc2dbff2ec2178dfa42e20b5sa5dv39d
+    #    }
+    #    connect_timeout 3
+    #    nb_get_retry 3
+    #    delay_before_retry 3
+    #}
+6、删除vrrp_instance（将删除包含该vrrp虚拟IP的所有virtual_server）
+    keepalived --delete-vrrp --name demo
+7、删除virtual_server（将删除该virtual_server下所有real_server）
+    keepalived -D -t 10.0.0.1:80
+8、删除real_server
+    keepalived -d -t 10.0.0.1:80 -r 10.0.100.2
 ```
 
