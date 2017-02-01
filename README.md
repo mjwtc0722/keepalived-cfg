@@ -152,9 +152,9 @@ Options:
 ```
 1、初始化配置文件，指定router_id为demo（清空所有配置）
     keepalived-cfg --init --rid demo
-2、添加vrrpinstance，指定名称为demo，声明为主服务器，使用网卡eth0，virtual_router_id为10，优先级100，认证密码demo，虚拟ip为10.0.0.1和10.0.0.2
+2、添加vrrp_instance，指定名称为demo，声明为主服务器，使用网卡eth0，virtual_router_id为10，优先级100，认证密码demo，虚拟ip为10.0.0.1和10.0.0.2
     keepalived-cfg --add-vrrp --name demo --state MASTER -I eth0 --vid 10 --priority 100 --password demo --vip 10.0.0.1,10.0.0.2
-3、添加
-    keepalived-cfg --add-vrrp --name demo --state MASTER -I eth0 --vid 10 --priority 100 --password demo --vip 10.0.0.1,10.0.0.2
+3、添加virtual_server，TCP协议10.0.0.1:80，加权轮询调度，DR模式，超时时间120秒
+    keepalived-cfg -A -t 10.0.0.1:80 -M 255.0.0.0 -s wrr -g -p 120
 ```
-o
+
