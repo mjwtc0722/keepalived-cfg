@@ -1,0 +1,763 @@
+#!/bin/bash
+#
+# error exit code
+# 1 :无效选项
+# 2 :参数格式错误
+# 3 :缺少必要参数
+# 4 :未找到
+# 5 :无法访问Check模版地址
+# 11:vrrp name已存在
+# 12:vrrp name不存在
+# 13:virtual route id已存在
+# 15:virtual ipaddress已存在
+# 16:virtual ipaddress不存在
+# 21:virtual server已存在
+# 22:virtual server不存在
+# 31:real server已存在
+# 32:real server不存在
+#
+Conf=/root/lb-cfg/keepalived.conf
+Service=/etc/init.d/keepalived
+ipvsadm="/usr/bin/sudo /sbin/ipvsadm"
+interface=eth0
+priority=100
+advert_int=1
+auth_pass=password
+delay_loop=6
+lb_algo=wrr
+lb_kind=DR
+persistence_timeout=60
+weight=1
+connect_timeout=3
+nb_get_retry=3
+delay_before_retry=3
+check=TCP_CHECK
+
+function Reload {
+    ${Service} reload
+}
+
+function Init {
+    chkconfig keepalived on
+    service keepalived start
+    if [ -z "${router_id}" ];then
+        echo "Please enter --rid router_id"
+        exit 3
+    fi
+cat > ${Conf} << EOF
+! Configuration File for keepalived
+
+global_defs {
+   #notification_email {
+   #  acassen@firewall.loc
+   #  failover@firewall.loc
+   #  sysadmin@firewall.loc
+   #}
+   #notification_email_from Alexandre.Cassen@firewall.loc
+   #smtp_server 192.168.200.1
+   #smtp_connect_timeout 30
+   router_id $router_id
+}
+EOF
+}
+
+function TCP_CHECK {
+sed -i "${line}i\\
+    real_server ${real_server_ip} ${real_server_port} {\n\
+        weight ${weight}\n\
+        TCP_CHECK {\n\
+            connect_port ${real_server_port}\n\
+            connect_timeout ${connect_timeout}\n\
+            nb_get_retry ${nb_get_retry}\n\
+            delay_before_retry ${delay_before_retry}\n\
+        }\n\
+    }" ${Conf}
+}
+
+function CHECK {
+    http_code=$(curl -s -m 5 -o /dev/null -w %{http_code} ${check})
+    if [ "${http_code}" = "000" -o "${http_code}" = "404" ];then
+        echo "Can not access ${check}"
+        exit 5
+    fi
+sed -i "${line}i\\
+    real_server ${real_server_ip} ${real_server_port} {\n\
+        weight ${weight}\n\
+$(curl -s ${check} |grep -v ^$ |sed -e 's/^/        /g' -e 's/$/\\/g')
+    }" ${Conf}
+}
+
+function Scope {
+    unset start_line
+    unset end_line
+    total_line=$(wc -l ${Conf} |awk '{print $1}')
+    left_brace=0
+    right_brace=0
+    if [ $(echo $1 |egrep "^[0-9]+$" |wc -l) -eq 1 ];then
+        line=$1
+        start_line=$1
+    else
+        line=$(grep -in "\<$1\>" ${Conf} |awk -F: '{print $1}'|head -n 1)
+        if [ -z "${line}" ];then
+            echo "Not Found"
+            exit 4
+        fi
+        start_line=${line}
+    fi
+    while [ ${line} -le ${total_line} ]
+    do
+        left_brace=$(( ${left_brace} + $(sed -n ${line}p ${Conf} |grep -o '{' |wc -l ) ))
+        right_brace=$(( ${right_brace} + $(sed -n ${line}p ${Conf} |grep -o '}' |wc -l ) ))
+        if [ "${left_brace}" = "${right_brace}" ];then
+            end_line=$line
+            break
+        fi
+        line=$(( ${line} + 1 ))
+    done
+}
+
+function Exist_VS {
+    if [ $(grep "\<virtual_server ${virtual_server_ip} ${virtual_server_port}\>" ${Conf} |wc -l) -eq 0 ];then
+        flag=0
+        return 0
+    fi
+    for VS in $(sed -n "/\<virtual_server ${virtual_server_ip} ${virtual_server_port}\>/=" ${Conf} |tr '\n' ' ')
+    do
+        Scope ${VS}
+        if [ $(sed -n "${start_line},${end_line}p" ${Conf} |grep "\<protocol ${protocol}\>" |wc -l) -eq 1 ];then
+            flag=1
+            break
+        else
+            flag=0
+        fi
+    done
+    if [ "${flag}" -eq 1 ];then
+        return 1
+    else
+        return 0
+    fi
+}
+
+function Add_VRRP {
+    if [ -z "${vrrp_instance}" ];then
+        echo "Please enter --name vrrp_name"
+        exit 3
+    fi
+    if [ -z "${virtual_router_id}" ];then
+        echo "Please enter --vid virtual_router_id"
+        exit 3
+    fi
+    if [ -z "${virtual_ipaddress}" ];then
+        echo "Please enter --vip virtual_ipaddress"
+        exit 3
+    fi
+    if [ $(grep -i "\<vrrp_instance ${vrrp_instance}\>" ${Conf} |wc -l) -ge 1 ];then
+        echo "vrrp_instance ${vrrp_instance} is already exist"
+        exit 11
+    fi
+    if [ $(grep "\<virtual_router_id ${virtual_router_id}\>" ${Conf} |wc -l) -ge 1 ];then
+        echo "virtual_router_id ${virtual_router_id} is already exist"
+        exit 13
+    fi
+    IFS=','
+    for VIP in ${virtual_ipaddress[@]}
+    do
+        if [ $(sed -n "/\<virtual_ipaddress\>/,/}/p" ${Conf} |grep "\<${VIP}\>" |wc -l) -ge 1 ];then
+            echo "virtual_ipaddress ${VIP} is already exist"
+            exit 15
+        fi 
+    done
+cat >> ${Conf} << EOF
+vrrp_instance ${vrrp_instance} {
+    state ${state}
+    interface ${interface}
+    virtual_router_id ${virtual_router_id}
+    priority ${priority}
+    advert_int ${advert_int}
+    authentication {
+        auth_type PASS
+        auth_pass ${auth_pass}
+    }
+    virtual_ipaddress {
+EOF
+    for VIP in ${virtual_ipaddress[@]}
+    do
+        echo "        ${VIP}" >> ${Conf}
+    done
+    echo "    }" >> ${Conf}
+    echo "}" >> ${Conf}
+}
+
+function Add_VS {
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    if [ -z "${nat_mask}" ];then
+        echo "Please enter -M|--netmask netmask"
+        exit 3
+    fi
+    if [ $(sed -n "/\<virtual_ipaddress\>/,/}/p" ${Conf} |grep "\<${virtual_server_ip}\>" |wc -l) -eq 0 ];then
+        echo "virtual_ipaddress ${virtual_server_ip} is not exist"
+        exit 16
+    fi
+    Exist_VS
+    if [ $? -eq 1 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is already exist"
+        exit 21
+    fi
+cat >> ${Conf} << EOF
+virtual_server ${virtual_server_ip} ${virtual_server_port} {
+    delay_loop ${delay_loop}
+    lb_algo ${lb_algo}
+    lb_kind ${lb_kind}
+    nat_mask ${nat_mask}
+    persistence_timeout ${persistence_timeout}
+    protocol ${protocol}
+}
+EOF
+}
+
+function Add_RS {
+    real_server_port=${virtual_server_port}
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    if [ -z "${real_server_ip}" ];then
+        echo "Please enter -r|--real-server server-address"
+        exit 3
+    fi
+    Exist_VS
+    if [ $? -eq 0 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is not exist"
+        exit 22
+    fi
+    if [ $(sed -n "${start_line},${end_line}p" ${Conf} |grep "\<real_server ${real_server_ip} ${real_server_port}\>" |wc -l) -gt 0 ];then
+        echo "real_server ${real_server_ip} ${protocol}/${real_server_port} is already exist"
+        exit 31
+    fi
+    line=${end_line}
+    if [ "${check}" = "TCP_CHECK" ];then
+        TCP_CHECK
+    else
+        CHECK
+    fi
+}
+
+function Edit_VRRP {
+    if [ -z "${vrrp_instance}" ];then
+        echo "Please enter --name vrrp_name"
+        exit 3
+    fi
+    if [ $(grep -i "\<vrrp_instance ${vrrp_instance}\>" ${Conf} |wc -l) -eq 0 ];then
+        echo "vrrp_instance ${vrrp_instance} is not exist"
+        exit 12
+    fi
+    if [ $(echo "$ARGS" |egrep -o " \-P | \-\-priority " |wc -l) -ge 1 ];then
+        Scope "vrrp_instance ${vrrp_instance}"
+        sed -i "${start_line},${end_line}s/\<priority.*\>/priority ${priority}/g" ${Conf}
+    else
+        echo "Please enter -P|--priority priority"
+        exit 3
+    fi
+}
+
+function Edit_VS {
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    Exist_VS
+    if [ $? -eq 0 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is not exist"
+        exit 22
+    fi
+    if [ $(echo "$ARGS" |egrep -o " \-s | \-\-scheduler " |wc -l) -ge 1 ];then
+        sed -i "${start_line},${end_line}s/\<lb_algo.*\>/lb_algo ${lb_algo}/g" ${Conf}
+    else
+        echo "Please enter -s|--scheduler scheduler"
+        exit 3
+    fi
+}
+
+function Edit_RS {
+    real_server_port=${virtual_server_port}
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    if [ -z "${real_server_ip}" ];then
+        echo "Please enter -r|--real-server server-address"
+        exit 3
+    fi
+    Exist_VS
+    if [ $? -eq 0 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is not exist"
+        exit 22
+    fi
+    if [ $(sed -n "${start_line},${end_line}p" ${Conf} |grep "\<real_server ${real_server_ip} ${real_server_port}\>" |wc -l) -eq 0 ];then
+        echo "real_server ${real_server_ip} ${protocol}/${real_server_port} is not exist"
+        exit 32
+    fi
+    vs_start_line=${start_line}
+    vs_end_line=${end_line}
+    for RS in $(sed -n "/\<real_server ${real_server_ip} ${real_server_port}\>/=" ${Conf} |tr '\n' ' ')
+    do
+        if [ "${RS}" -lt "${vs_start_line}" -o "${RS}" -gt "${vs_end_line}" ];then
+            continue
+        fi
+        Scope ${RS}
+        if [ "${end_line}" -lt "${vs_end_line}" ];then
+            if [ $(echo "$ARGS" |egrep -o " \-w | \-\-weight " |wc -l) -ge 1 ];then
+                sed -i "${start_line},${end_line}s/\<weight.*\>/weight ${weight}/g" ${Conf}
+            else
+                echo "Please enter -w|--weight weight"
+            fi
+        fi
+    done
+}
+
+function Delete_VRRP {
+    if [ -z "${vrrp_instance}" ];then
+        echo "Please enter --name vrrp_name"
+        exit 3
+    fi
+    if [ $(grep -i "\<vrrp_instance ${vrrp_instance}\>" ${Conf} |wc -l) -eq 0 ];then
+        echo "vrrp_instance ${vrrp_instance} is not exist"
+        exit 12
+    fi
+    Scope "vrrp_instance ${vrrp_instance}"
+    for VIP in $(sed -n "${start_line},${end_line}p" ${Conf} |egrep -o "((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-4]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?)" |tr '\n' ' ')
+    do
+        while [ $(grep "\<virtual_server ${VIP}\>" ${Conf} |wc -l) -ne 0 ]
+        do
+            Scope "virtual_server ${VIP}"
+            sed -i "${start_line},${end_line}d" ${Conf}
+        done
+    done
+    Scope "vrrp_instance ${vrrp_instance}"
+    sed -i "${start_line},${end_line}d" ${Conf}
+}
+
+function Delete_VS {
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    Exist_VS
+    if [ $? -eq 0 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is not exist"
+        exit 22
+    fi
+    sed -i "${start_line},${end_line}d" ${Conf}
+}
+
+function Delete_RS {
+    real_server_port=${virtual_server_port}
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    if [ -z "${real_server_ip}" ];then
+        echo "Please enter -r|--real-server server-address"
+        exit 3
+    fi
+    Exist_VS
+    if [ $? -eq 0 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is not exist"
+        exit 22
+    fi
+    if [ $(sed -n "${start_line},${end_line}p" ${Conf} |grep "\<real_server ${real_server_ip} ${real_server_port}\>" |wc -l) -eq 0 ];then
+        echo "real_server ${real_server_ip} ${protocol}/${real_server_port} is not exist"
+        exit 32
+    fi
+    vs_start_line=${start_line}
+    vs_end_line=${end_line}
+    for RS in $(sed -n "/\<real_server ${real_server_ip} ${real_server_port}\>/=" ${Conf} |tr '\n' ' ')
+    do
+        if [ "${RS}" -lt "${vs_start_line}" -o "${RS}" -gt "${vs_end_line}" ];then
+            continue
+        fi
+        Scope ${RS}
+        if [ "${end_line}" -lt "${vs_end_line}" ];then
+            sed -i "${start_line},${end_line}d" ${Conf}
+        fi
+    done
+}
+
+function Hide_RS {
+    real_server_port=${virtual_server_port}
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    if [ -z "${real_server_ip}" ];then
+        echo "Please enter -r|--real-server server-address"
+        exit 3
+    fi
+    Exist_VS
+    if [ $? -eq 0 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is not exist"
+        exit 22
+    fi
+    if [ $(sed -n "${start_line},${end_line}p" ${Conf} |grep "\<real_server ${real_server_ip} ${real_server_port}\>" |wc -l) -eq 0 ];then
+        echo "real_server ${real_server_ip} ${protocol}/${real_server_port} is not exist"
+        exit 32
+    fi
+    vs_start_line=${start_line}
+    vs_end_line=${end_line}
+    for RS in $(sed -n "/\<real_server ${real_server_ip} ${real_server_port}\>/=" ${Conf} |tr '\n' ' ')
+    do
+        if [ "${RS}" -lt "${vs_start_line}" -o "${RS}" -gt "${vs_end_line}" ];then
+            continue
+        fi
+        Scope ${RS}
+        if [ "${end_line}" -lt "${vs_end_line}" ];then
+            sed -i "${start_line},${end_line}s/^/#/g" ${Conf}
+        fi
+    done
+}
+
+function Show_RS {
+    real_server_port=${virtual_server_port}
+    if [ -z "${virtual_server}" ];then
+        echo "Please enter -t|u service-address"
+        exit 3
+    fi
+    if [ -z "${real_server_ip}" ];then
+        echo "Please enter -r|--real-server server-address"
+        exit 3
+    fi
+    Exist_VS
+    if [ $? -eq 0 ];then
+        echo "virtual_server ${virtual_server_ip} ${protocol}/${virtual_server_port} is not exist"
+        exit 22
+    fi
+    if [ $(sed -n "${start_line},${end_line}p" ${Conf} |grep "\<real_server ${real_server_ip} ${real_server_port}\>" |wc -l) -eq 0 ];then
+        echo "real_server ${real_server_ip} ${protocol}/${real_server_port} is not exist"
+        exit 32
+    fi
+    vs_start_line=${start_line}
+    vs_end_line=${end_line}
+    for RS in $(sed -n "/\<real_server ${real_server_ip} ${real_server_port}\>/=" ${Conf} |tr '\n' ' ')
+    do
+        if [ "${RS}" -lt "${vs_start_line}" -o "${RS}" -gt "${vs_end_line}" ];then
+            continue
+        fi
+        Scope ${RS}
+        if [ "${end_line}" -lt "${vs_end_line}" ];then
+            sed -i "${start_line},${end_line}s/^#//g" ${Conf}
+        fi
+    done
+}
+
+function List {
+    IFS=$'\n'
+    total_line=$(${ipvsadm} -Ln |sed -n '4,$p' |wc -l)
+    line_number=0
+    printf '{ "data" : [\n'
+    for LINE in $(${ipvsadm} -Ln |sed -n '4,$p')
+    do
+        line_number=$(( ${line_number} + 1 ))
+        if [ $(echo ${LINE} |awk '{print $1}') = "TCP" -o $(echo ${LINE} |awk '{print $1}') = "UDP" ];then
+            protocal=$(echo ${LINE} |awk '{print $1}')
+            virtual_server=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $1}')
+            port=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $2}')
+            lb_algo=$(echo ${LINE} |awk '{print $3}')
+        fi
+        if [ $(echo ${LINE} |awk '{print $1}') = "->" ];then
+            real_server=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $1}')
+            lb_kind=$(echo ${LINE} |awk '{print $3}')
+            weight=$(echo ${LINE} |awk '{print $4}')
+            printf "{ \"virtual_server\" : \"${virtual_server}\", \"real_server\" : \"${real_server_ip}\", \"port\" : \"${port}\", \"lb_kind\" : \"${lb_kind}\", \"lb_algo\" : \"${lb_algo}\", \"weight\" : \"${weight}\" }"
+            if [ "${line_number}" -ne "${total_line}" ];then 
+                printf ", \n"
+            fi
+        fi
+    done
+    printf " ] }\n"
+}
+
+function Help {
+    basename=$(basename $0)
+    echo "Usage:"
+    echo "  ${basename} --init"
+    echo "  ${basename} --add-vrrp --name vrrp_name --vid virtual_router_id --vip virtual_ipaddress [options]"
+    echo "  ${basename} --edit-vrrp --name vrrp_name -P|--priority priority"
+    echo "  ${basename} --delete-vrrp --name vrrp_name"
+    echo "  ${basename} -A|E -t|u service-address [-s scheduler] [-M|--netmask netmask]"
+    echo "  ${basename} -D -t|u service-address"
+    echo "  ${basename} -a|e -t|u service-address -r server-address [options]"
+    echo "  ${basename} -d -t|u service-address -r server-address"
+    echo "  ${basename} -L|l"
+    echo "  ${basename} -H -t|u service-address -r server-address"
+    echo "  ${basename} -S -t|u service-address -r server-address"
+    echo "  ${basename} -h"
+    echo ""
+    echo "Commands:"
+    echo "Either long or short options are allowed."
+    echo "  --init                      init keepalived.conf"
+    echo "  --add-vrrp                  add vrrp instance with options"
+    echo "  --edit-vrrp                 edit vrrp instance with options"
+    echo "  --delete-vrrp               delete vrrp instance"
+    echo "  --add-service     -A        add virtual service with options"
+    echo "  --edit-service    -E        edit virtual service with options"
+    echo "  --delete-service  -D        delete virtual service"
+    echo "  --add-server      -a        add real server with options"
+    echo "  --edit-server     -e        edit real server with options"
+    echo "  --delete-server   -d        delete real server"
+    echo "  --list            -L|-l     list with json"
+    echo "  --show-server     -S        show real server"
+    echo "  --hide-server     -H        hide real server"
+    echo "  --help            -h        display this help message"
+    echo ""
+    echo "Options:"
+    echo "  --name                              vrrp instance"
+    echo "  --state                             vrrp state [MASTER|BACKUP]"
+    echo "                                      the default state is MASTER"
+    echo "  --interface    -I                   vrrp interface"
+    echo "  --vid                               vrrp virtual_router_id [1-255]"
+    echo "  --priority     -P                   vrrp priority [1-100]"
+    echo "                                      the default priority is ${priority}"
+    echo "  --password                          authentication password"
+    echo "  --vip                               virtual_ipaddress is host"
+    echo "  --tcp-service  -t service-address   service-address is host[:port]"
+    echo "  --udp-service  -u service-address   service-address is host[:port]"
+    echo "  --scheduler    -s scheduler         one of rr|wrr|lc|wlc|lblc|lblcr|dh|sh|sed|nq,"
+    echo "                                      the default scheduler is ${lb_algo}."
+    echo "  --persistent   -p [timeout]         persistent service"
+    echo "                                      the default persistent timeout is ${persistence_timeout}"
+    echo "  --netmask      -M netmask           persistent granularity mask"
+    echo "  --real-server  -r server-address    server-address is host (and port)"
+    echo "  --gatewaying   -g                   gatewaying (direct routing) (default)"
+    echo "  --ipip         -i                   ipip encapsulation (tunneling)"
+    echo "  --masquerading -m                   masquerading (NAT)"
+    echo "  --weight       -w weight            capacity of real server [1-100]"
+    echo "                                      the default weight is ${weight}"
+    echo "  --check        -c URL               check template of real-server"
+}
+
+if [ -z "$*" ];then
+    exec=Help
+fi
+ARGS=$(getopt -o I:P:p:t:u:s:M:r:w:c:AaDdEeLlSHhgim --long add-vrrp,add-service,add-server,edit-vrrp,edit-service,edit-server,delete-vrrp,delete-service,delete-server,list,show,hide,help,rid:,name:,state:,interface:,vid:,priority:,password:,vip:,tcp-service:,udp-service:,scheduler:,netmask:,real-server:,weight:,check:,init,gatewaying,ipip,masquerading -n "$(basename $0)" -- "$@")
+if [ $? != 0 ]; then
+    echo "Terminating..."
+    exit 1
+fi
+eval set -- "${ARGS}"
+while true
+do
+    case $1 in
+        --init)
+            exec=Init
+            shift
+            ;;
+        --add-vrrp)
+            exec=Add_VRRP
+            shift
+            ;;
+        -A|--add-service)
+            exec=Add_VS
+            shift
+            ;;
+        -a|--add-server)
+            exec=Add_RS
+            shift 
+            ;;
+        --edit-vrrp)
+            exec=Edit_VRRP
+            shift
+            ;;
+        -E|--edit-service)
+            exec=Edit_VS
+            shift 
+            ;;
+        -e|--edit-server)
+            exec=Edit_RS
+            shift 
+            ;;
+        --delete-vrrp)
+            exec=Delete_VRRP
+            shift
+            ;;
+        -D|--delete-service)
+            exec=Delete_VS
+            shift 
+            ;;
+        -d|--delete-server)
+            exec=Delete_RS
+            shift 
+            ;;
+        -l|-L|--list)
+            exec=List
+            break
+            ;;
+        -S|--show-server)
+            exec=Show_RS
+            shift
+            ;;
+        -H|--hide-server)
+            exec=Hide_RS
+            shift
+            ;;
+        -h|--help)
+            exec=Help
+            shift
+            ;;
+        --rid)
+            router_id=$2
+            shift 2
+            ;;
+        --name)
+            vrrp_instance=$2
+            shift 2
+            ;;
+        --state)
+            case $2 in 
+                master|MASTER)
+                    state=MASTER
+                    ;;
+                backup|BACKUP)
+                    state=BACKUP
+                    ;;
+                *)
+                    echo "Please enter --state [MASTER|BACKUP]"
+                    exit 2
+                    ;;
+            esac
+            shift 2
+            ;;
+        -I|--interface)
+            if [ ! -x /sys/class/net/$2 ];then
+                echo "Please enter -I|--interface [$(ls /sys/class/net/ |grep -v lo |tr "\n" "|" |sed "s/|$//g")]"
+                exit 2
+            fi
+            shift 2
+            ;;
+        --vid)
+            virtual_router_id=$(echo $2 |egrep '^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?)$')
+            if [ -z "${virtual_router_id}" ];then
+                echo "Please enter --vid virtual_router_id:[1-255]"
+                exit 2
+            fi
+            shift 2
+            ;;
+        -P|--priority)
+            priority=$(echo $2 |egrep '^(100|[1-9][0-9]?)$')
+            if [ -z "${priority}" ];then
+                echo "Please enter -P|--priority priority:[0-100]"
+                exit 2
+            fi  
+            shift 2
+            ;;
+        --password)
+            auth_pass=$2
+            shift 2
+            ;;
+        --vip)
+            virtual_ipaddress=($(echo $2 |egrep "^(((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-4]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?,?))+$"))
+            if [ -z "${virtual_ipaddress}" ];then
+                echo "Please enter --vip virtual_ipaddress:[IP1,IP2,...]"
+                exit 2
+            fi
+            shift 2
+            ;;
+        -t|--tcp-service)
+            protocol=TCP
+            virtual_server=$(echo $2 |egrep "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-4]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?):(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})$")
+            if [ -z "${virtual_server}" ];then
+                echo "Please enter -t|u service-address:[IP:PORT]"
+                exit 2
+            fi
+            virtual_server_ip=$(echo ${virtual_server} |awk -F: '{print $1}')
+            virtual_server_port=$(echo ${virtual_server} |awk -F: '{print $2}')
+            shift 2
+            ;;
+        -u|--udp-service)
+            protocol=UDP
+            virtual_server=$(echo $2 |egrep "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-4]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?):(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})$")
+            if [ -z "${virtual_server}" ];then
+                echo "Please enter -t|u service-address:[IP:PORT]"
+                exit 2
+            fi
+            virtual_server_ip=$(echo ${virtual_server} |awk -F: '{print $1}')
+            virtual_server_port=$(echo ${virtual_server} |awk -F: '{print $2}')
+            shift 2
+            ;;
+        -s|--scheduler)
+            case $2 in
+                rr|wrr|lc|wlc|lblc|lblcr|dh|sh|sed|nq)
+                    lb_algo=$2
+                    ;;
+                *)
+                    echo "Please enter -s|--scheduler scheduler:[rr|wrr|lc|wlc|lblc|lblcr|dh|sh|sed|nq]"
+                    exit 2
+                    ;;
+            esac
+            shift 2
+            ;;
+        -g|--gatewaying)
+            lb_bind=DR
+            shift
+            ;;
+        -i|--ipip)
+            lb_bind=TUN
+            shift
+            ;;
+        -m|--masquerading)
+            lb_bind=NAT
+            shift
+            ;;
+        -M|--netmask)
+            nat_mask=$(echo $2 |egrep "^((254|252|248|240|224|192|128|0)\.0\.0\.0)|(255\.(254|252|248|240|224|192|128|0)\.0\.0)|(255\.255\.(254|252|248|240|224|192|128|0)\.0)|(255\.255\.255\.(255|254|252|248|240|224|192|128|0))$")
+            if [ -z "${nat_mask}" ];then
+                echo "Please enter -M|--netmask netmask"
+                exit 2
+            fi
+            shift 2
+            ;;
+        -p|--persistence)
+            persistence_timeout=$(echo $2 |egrep "^([0-9]*)$")
+            if [ -z "${persistence_timeout}" ];then
+                echo "Please enter -p|--persistence persistence_timeout:[timeout]"
+                exit 2
+            fi
+            shift 2
+            ;;
+        -r|--real-server)
+            real_server_ip=$(echo $2 |egrep "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-4]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?)$")
+            if [ -z "${real_server_ip}" ];then
+                echo "Please enter -r|--real-server server-address:[IP]"
+                exit 2
+            fi
+            shift 2
+            ;;
+        -w|--weight)
+            weight=$(echo $2 |egrep "^(100|[1-9][0-9]?)$")
+            if [ -z "${weight}" ];then
+                echo "Please enter -w|--weight weight:[1-100]"
+                exit 2
+            fi
+            shift 2
+            ;;
+        -c|--check)
+            check="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Internal error!"
+            exit 1
+            ;;
+    esac
+done
+
+${exec}
+if [ "${exec}" != "Init" -a "${exec}" != "List" -a "${exec}" != "Help" ];then
+    Reload
+fi
