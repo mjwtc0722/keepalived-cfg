@@ -465,12 +465,13 @@ function List {
             virtual_server=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $1}')
             port=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $2}')
             lb_algo=$(echo ${LINE} |awk '{print $3}')
+            persistent=$(echo ${LINE} |awk '{print $5}')
         fi
         if [ $(echo ${LINE} |awk '{print $1}') = "->" ];then
             real_server=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $1}')
             lb_kind=$(echo ${LINE} |awk '{print $3}')
             weight=$(echo ${LINE} |awk '{print $4}')
-            printf "{ \"virtual_server\" : \"${virtual_server}\", \"real_server\" : \"${real_server_ip}\", \"port\" : \"${port}\", \"lb_kind\" : \"${lb_kind}\", \"lb_algo\" : \"${lb_algo}\", \"weight\" : \"${weight}\" }"
+            printf "{ \"virtual_server\" : \"${virtual_server}\", \"real_server\" : \"${real_server_ip}\", \"port\" : \"${port}\", \"lb_kind\" : \"${lb_kind}\", \"persistent\" : \"${persistent}\", \"lb_algo\" : \"${lb_algo}\", \"weight\" : \"${weight}\" }"
             if [ "${line_number}" -ne "${total_line}" ];then 
                 printf ", \n"
             fi
