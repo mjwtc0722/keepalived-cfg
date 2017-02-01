@@ -1,7 +1,7 @@
 # keepalived-cfg
 lvs+keepalived配置脚本
 
-通过脚本参数参数配置keepalived.conf，配置格式如下：
+通过脚本参数参数配置keepalived.conf，配置格式如下：（支持自定义模版的lvs健康检查）
 ```
 ! Configuration File for keepalived
 
