@@ -172,14 +172,37 @@ Options:
     #    delay_before_retry 3
     #}
 6、删除vrrp_instance（将删除包含该vrrp虚拟IP的所有virtual_server）
-    keepalived --delete-vrrp --name demo
+    keepalived-cfg --delete-vrrp --name demo
 7、删除virtual_server（将删除该virtual_server下所有real_server）
-    keepalived -D -t 10.0.0.1:80
+    keepalived-cfg -D -t 10.0.0.1:80
 8、删除real_server
-    keepalived -d -t 10.0.0.1:80 -r 10.0.100.2
+    keepalived-cfg -d -t 10.0.0.1:80 -r 10.0.100.2
 9、隐藏/注释real_server（用于临时摘除real_server）
-    keepalived -H -t 10.0.0.1:80 -r 10.0.100.1
+    keepalived-cfg -H -t 10.0.0.1:80 -r 10.0.100.1
 10、显示/取消注释real_server（用于恢复临时摘除的real_server）
-    keepalived -S -t 10.0.0.1:80 -r 10.0.100.1
+    keepalived-cfg -S -t 10.0.0.1:80 -r 10.0.100.1
+11、修改vrrp优先级
+    keepalived-cfg --edit-vrrp --name demo --priority 90
+12、修改virtual_server调度模式
+    keepalived-cfg -E -t 10.0.0.1:80 -s rr
+13、修改real_server权重
+    keepalived-cfg -e -t 10.0.0.1:80 -r 10.0.100.1 -w 5
 ```
 
+## 脚本错误推出码说明
+```
+1 :无效选项
+2 :参数格式错误
+3 :缺少必要参数
+4 :未找到
+5 :无法访问Check模版地址
+11:vrrp name已存在
+12:vrrp name不存在
+13:virtual route id已存在
+15:virtual ipaddress已存在
+16:virtual ipaddress不存在
+21:virtual server已存在
+22:virtual server不存在
+31:real server已存在
+32:real server不存在
+```
