@@ -177,5 +177,9 @@ Options:
     keepalived -D -t 10.0.0.1:80
 8、删除real_server
     keepalived -d -t 10.0.0.1:80 -r 10.0.100.2
+9、隐藏/注释real_server（用于临时摘除real_server）
+    keepalived -H -t 10.0.0.1:80 -r 10.0.100.1
+10、显示/取消注释real_server（用于恢复临时摘除的real_server）
+    keepalived -S -t 10.0.0.1:80 -r 10.0.100.1
 ```
 
