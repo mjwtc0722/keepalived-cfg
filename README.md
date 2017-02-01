@@ -187,6 +187,8 @@ Options:
     keepalived-cfg -E -t 10.0.0.1:80 -s rr
 13、修改real_server权重
     keepalived-cfg -e -t 10.0.0.1:80 -r 10.0.100.1 -w 5
+14、以JSON格式输出
+    keepalived-cfg -l
 ```
 
 ## 脚本错误退出码说明
