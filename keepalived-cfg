@@ -18,7 +18,7 @@
 #
 Conf=/etc/keepalived/keepalived.conf
 Service=/etc/init.d/keepalived
-ipvsadm="/usr/bin/sudo /sbin/ipvsadm"
+ipvsadm=/sbin/ipvsadm
 interface=eth0
 priority=100
 advert_int=1
