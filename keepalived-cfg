@@ -16,7 +16,7 @@
 # 31:real server已存在
 # 32:real server不存在
 #
-Conf=/root/lb-cfg/keepalived.conf
+Conf=/etc/keepalived/keepalived.conf
 Service=/etc/init.d/keepalived
 ipvsadm="/usr/bin/sudo /sbin/ipvsadm"
 interface=eth0
