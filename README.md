@@ -84,3 +84,62 @@ virtual_server 10.0.0.2 8080 {
     }
 }
 ```
+
+## 脚本使用说明
+```
+Usage:
+  keepalived-cfg --init --rid router_id
+  keepalived-cfg --add-vrrp --name vrrp_name --vid virtual_router_id --vip virtual_ipaddress [options]
+  keepalived-cfg --edit-vrrp --name vrrp_name -P|--priority priority
+  keepalived-cfg --delete-vrrp --name vrrp_name
+  keepalived-cfg -A|E -t|u service-address [-s scheduler] [-M|--netmask netmask]
+  keepalived-cfg -D -t|u service-address
+  keepalived-cfg -a|e -t|u service-address -r server-address [options]
+  keepalived-cfg -d -t|u service-address -r server-address
+  keepalived-cfg -L|l
+  keepalived-cfg -H -t|u service-address -r server-address
+  keepalived-cfg -S -t|u service-address -r server-address
+  keepalived-cfg -h
+
+Commands:
+Either long or short options are allowed.
+  --init                      init keepalived.conf
+  --add-vrrp                  add vrrp instance with options
+  --edit-vrrp                 edit vrrp instance with options
+  --delete-vrrp               delete vrrp instance
+  --add-service     -A        add virtual service with options
+  --edit-service    -E        edit virtual service with options
+  --delete-service  -D        delete virtual service
+  --add-server      -a        add real server with options
+  --edit-server     -e        edit real server with options
+  --delete-server   -d        delete real server
+  --list            -L|-l     list with json
+  --show-server     -S        show real server
+  --hide-server     -H        hide real server
+  --help            -h        display this help message
+
+Options:
+  --name                              vrrp instance
+  --state                             vrrp state [MASTER|BACKUP]
+                                      the default state is MASTER
+  --interface    -I                   vrrp interface
+  --vid                               vrrp virtual_router_id [1-255]
+  --priority     -P                   vrrp priority [1-100]
+                                      the default priority is 100
+  --password                          authentication password
+  --vip                               virtual_ipaddress is host
+  --tcp-service  -t service-address   service-address is host[:port]
+  --udp-service  -u service-address   service-address is host[:port]
+  --scheduler    -s scheduler         one of rr|wrr|lc|wlc|lblc|lblcr|dh|sh|sed|nq,
+                                      the default scheduler is wrr.
+  --persistent   -p [timeout]         persistent service
+                                      the default persistent timeout is 60
+  --netmask      -M netmask           persistent granularity mask
+  --real-server  -r server-address    server-address is host (and port)
+  --gatewaying   -g                   gatewaying (direct routing) (default)
+  --ipip         -i                   ipip encapsulation (tunneling)
+  --masquerading -m                   masquerading (NAT)
+  --weight       -w weight            capacity of real server [1-100]
+                                      the default weight is 1
+  --check        -c URL               check template of real-server
+```
