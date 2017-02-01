@@ -85,7 +85,7 @@ virtual_server 10.0.0.2 8080 {
 }
 ```
 
-## 脚本使用说明
+## 脚本参数说明
 ```
 Usage:
   keepalived-cfg --init --rid router_id
@@ -143,3 +143,8 @@ Options:
                                       the default weight is 1
   --check        -c URL               check template of real-server
 ```
+## 注意事项
+```
+根据实际情况修改脚本中19-33行及48-60行内容
+```
+## Demo
