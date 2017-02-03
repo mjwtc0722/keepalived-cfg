@@ -149,7 +149,7 @@ Options:
 需安装keepalived及ipvsadm
 根据实际情况修改脚本中19-33行及48-60行内容
 ```
-## Demo
+## 脚本使用示例
 ```
 1、初始化配置文件，指定router_id为demo（清空所有配置）
     keepalived-cfg --init --rid demo
