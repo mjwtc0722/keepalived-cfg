@@ -188,7 +188,9 @@ Options:
     keepalived-cfg -E -t 10.0.0.1:80 -s rr
 13、修改real_server权重
     keepalived-cfg -e -t 10.0.0.1:80 -r 10.0.100.1 -w 5
-14、以JSON格式输出
+14、以JSON格式输出vrrp列表
+    keepalived-cfg -L
+15、以JSON格式输出lvs列表
     keepalived-cfg -l
 ```
 
