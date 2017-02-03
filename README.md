@@ -113,7 +113,8 @@ Either long or short options are allowed.
   --add-server      -a        add real server with options
   --edit-server     -e        edit real server with options
   --delete-server   -d        delete real server
-  --list            -L|-l     list with json
+  --list-vrrp       -L        list vrrp instance with json
+  --list-lvs        -l        list LVS table with json
   --show-server     -S        show real server
   --hide-server     -H        hide real server
   --help            -h        display this help message
