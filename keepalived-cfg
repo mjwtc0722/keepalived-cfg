@@ -471,7 +471,7 @@ function List {
             real_server=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $1}')
             lb_kind=$(echo ${LINE} |awk '{print $3}')
             weight=$(echo ${LINE} |awk '{print $4}')
-            printf "{ \"virtual_server\" : \"${virtual_server}\", \"real_server\" : \"${real_server_ip}\", \"port\" : \"${port}\", \"lb_kind\" : \"${lb_kind}\", \"persistent\" : \"${persistent}\", \"lb_algo\" : \"${lb_algo}\", \"weight\" : \"${weight}\" }"
+            printf "{ \"virtual_server\" : \"${virtual_server}\", \"real_server\" : \"${real_server}\", \"port\" : \"${port}\", \"lb_kind\" : \"${lb_kind}\", \"persistent\" : \"${persistent}\", \"lb_algo\" : \"${lb_algo}\", \"weight\" : \"${weight}\" }"
             if [ "${line_number}" -ne "${total_line}" ];then 
                 printf ", \n"
             fi
