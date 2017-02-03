@@ -452,7 +452,27 @@ function Show_RS {
     done
 }
 
-function List {
+function List_VRRP {
+    echo List_Keepalived
+    last_vrrp=$(grep "vrrp_instance" ${Conf} |awk '{print $2}' |tail -n 1)
+    printf '{ "data" : [\n'
+    for VRRP in $(grep "vrrp_instance" ${Conf} |awk '{print $2}' |tr '\n' ' ')
+    do
+        Scope "vrrp_instance ${VRRP}"
+        state=$(sed -n "${start_line},${end_line}p" ${Conf} |grep "state" |awk '{print $2}')
+        interface=$(sed -n "${start_line},${end_line}p" ${Conf} |grep "interface" |awk '{print $2}')
+        virtual_router_id=$(sed -n "${start_line},${end_line}p" ${Conf} |grep "virtual_router_id" |awk '{print $2}')
+        priority=$(sed -n "${start_line},${end_line}p" ${Conf} |grep "priority" |awk '{print $2}')
+        virtual_ipaddress="$(sed -n "${start_line},${end_line}p" ${Conf} |egrep -o "((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-4]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?)" |tr '\n' ' ' |sed -e "s/ $//g" -e "s/ /\", \"/g")"
+        printf "{ \"vrrp_instance\" : \"${VRRP}\", \"state\" : \"${state}\", \"interface\" : \"${interface}\", \"virtual_router_id\" : \"${virtual_router_id}\", \"priority\" : \"${priority}\", \"virtual_ipaddress\" : [ \"${virtual_ipaddress}\" ] }"
+        if [ "${VRRP}" != "${last_vrrp}" ];then
+            printf ", \n"
+        fi
+    done
+    printf " ] }\n"
+}
+
+function List_LVS {
     IFS=$'\n'
     total_line=$(${ipvsadm} -Ln |sed -n '4,$p' |wc -l)
     line_number=0
@@ -465,13 +485,12 @@ function List {
             virtual_server=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $1}')
             port=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $2}')
             lb_algo=$(echo ${LINE} |awk '{print $3}')
-            persistent=$(echo ${LINE} |awk '{print $5}')
         fi
         if [ $(echo ${LINE} |awk '{print $1}') = "->" ];then
             real_server=$(echo ${LINE} |awk '{print $2}' |awk -F: '{print $1}')
             lb_kind=$(echo ${LINE} |awk '{print $3}')
             weight=$(echo ${LINE} |awk '{print $4}')
-            printf "{ \"virtual_server\" : \"${virtual_server}\", \"real_server\" : \"${real_server}\", \"port\" : \"${port}\", \"lb_kind\" : \"${lb_kind}\", \"persistent\" : \"${persistent}\", \"lb_algo\" : \"${lb_algo}\", \"weight\" : \"${weight}\" }"
+            printf "{ \"virtual_server\" : \"${virtual_server}\", \"real_server\" : \"${real_server}\", \"port\" : \"${port}\", \"lb_kind\" : \"${lb_kind}\", \"lb_algo\" : \"${lb_algo}\", \"weight\" : \"${weight}\" }"
             if [ "${line_number}" -ne "${total_line}" ];then 
                 printf ", \n"
             fi
@@ -508,7 +527,8 @@ function Help {
     echo "  --add-server      -a        add real server with options"
     echo "  --edit-server     -e        edit real server with options"
     echo "  --delete-server   -d        delete real server"
-    echo "  --list            -L|-l     list with json"
+    echo "  --list-vrrp       -L        list vrrp instance with json"
+    echo "  --list-lvs        -l        list LVS table with json"
     echo "  --show-server     -S        show real server"
     echo "  --hide-server     -H        hide real server"
     echo "  --help            -h        display this help message"
@@ -542,7 +562,7 @@ function Help {
 if [ -z "$*" ];then
     exec=Help
 fi
-ARGS=$(getopt -o I:P:p:t:u:s:M:r:w:c:AaDdEeLlSHhgim --long add-vrrp,add-service,add-server,edit-vrrp,edit-service,edit-server,delete-vrrp,delete-service,delete-server,list,show,hide,help,rid:,name:,state:,interface:,vid:,priority:,password:,vip:,tcp-service:,udp-service:,scheduler:,netmask:,real-server:,weight:,check:,init,gatewaying,ipip,masquerading -n "$(basename $0)" -- "$@")
+ARGS=$(getopt -o I:P:p:t:u:s:M:r:w:c:AaDdEeLlSHhgim --long add-vrrp,add-service,add-server,edit-vrrp,edit-service,edit-server,delete-vrrp,delete-service,delete-server,list-vrrp,list-lvs,show,hide,help,rid:,name:,state:,interface:,vid:,priority:,password:,vip:,tcp-service:,udp-service:,scheduler:,netmask:,real-server:,weight:,check:,init,gatewaying,ipip,masquerading -n "$(basename $0)" -- "$@")
 if [ $? != 0 ]; then
     echo "Terminating..."
     exit 1
@@ -591,8 +611,12 @@ do
             exec=Delete_RS
             shift 
             ;;
-        -l|-L|--list)
-            exec=List
+        -L|--List-vrrp)
+            exec=List_VRRP
+            break
+            ;;
+        -l|--list-lvs)
+            exec=List_LVS
             break
             ;;
         -S|--show-server)
@@ -759,6 +783,6 @@ do
 done
 
 ${exec}
-if [ "${exec}" != "Init" -a "${exec}" != "List" -a "${exec}" != "Help" ];then
+if [ "${exec}" != "Init" -a "${exec}" != "List_VRRP" -a "${exec}" != "List_LVS" -a "${exec}" != "Help" ];then
     Reload
 fi
